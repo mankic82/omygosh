@@ -5,29 +5,41 @@ import json
 import psycopg2
 from psycopg2 import OperationalError
 from time import sleep
+import os
 
-HOST = 'http://172.30.1.5:8081'
+timeout = int(os.environ.get('REQUEST_TIMEOUT', 30))
 
-def uploadfile_to_vm(vm_name: str, local_path: str, remote_path: str):
+HOST = 'http://172.30.1.84:8081'
+
+def uploadfile_to_vm(vm_name: str, local_path: str, remote_path: str, retries=5):
     print("파일을 VM에 업로드 중...")
-    try:
-        with open(local_path, 'rb') as f:
-            files = {'file': f}
-            response = requests.post(f'{HOST}/upload/{remote_path}', files=files, timeout=60, verify=False)
-        print("파일 업로드 완료.")
-    except requests.exceptions.ConnectionError:
-        print("Connection refused. Retrying...")
-        sleep(5)  # 5초 동안 대기합니다.
-        uploadfile_to_vm(vm_name, local_path, remote_path)  
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+    while retries > 0:
+        try:
+            with open(local_path, 'rb') as f:
+                files = {'file': f}
+                response = requests.post(f'{HOST}/upload/{remote_path}', files=files, timeout=60, verify=False)
+            print("파일 업로드 완료.")
+            return
+        except requests.exceptions.ConnectionError:
+            print("Connection refused. Retrying...")
+            sleep(5)
+            retries -= 1
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            return
 
 def exec_remote_path(vm_name: str, remote_path: str, argument: str, timeout: int):
     print("원격 경로 실행 중...")
-    data = {"command": remote_path, "arg": argument}
-    headers = {'Content-type': 'application/json'}
-    response = requests.post(f'{HOST}/command', data=json.dumps(data), headers=headers, timeout=timeout)
-    print("원격 경로 실행 완료.")
+    try:
+        data = {"command": remote_path, "arg": argument}
+        headers = {'Content-type': 'application/json'}
+        response = requests.post(f'{HOST}/command', data=json.dumps(data), headers=headers, timeout=timeout)
+        if response.status_code == 200:
+            print("원격 경로 실행 완료.")
+        else:
+            print(f"Failed to execute remote path. Status code: {response.status_code}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
 
 # 이벤트 로그 처리
 def exec_event_export(vm_name: str):
@@ -53,15 +65,18 @@ def connect_db(db_address: str):
         return None, str(e)
 
 def close_db(db_handle):
-    db_handle.close()
-    print("데이터베이스 연결 종료")
+    try:
+        db_handle.close()
+        print("데이터베이스 연결 종료")
+    except Exception as e:
+        print(f"An error occurred while closing the database: {e}")
 
 def start_analyze(vm_name: str, file_path:str, argument:str, timeout:int):
     # 가상 머신 시작
     start_vm(vm_name)  
 
     # 1. 가상 머신에 분석 대상 파일을 업로드
-    uploadfile_to_vm(vm_name, file_path, "target.exe")
+    uploadfile_to_vm(vm_name, file_path, "C:\\Users\\gacci\\Documents\\target.exe")
         
     # 2. 업로드한 파일을 실행
     exec_remote_path(vm_name, "target.exe", argument, timeout)
