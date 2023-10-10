@@ -2,7 +2,7 @@ import requests
 import json
 
 def main():
-    HOST = 'http://172.30.1.5:8081'
+    HOST = 'http://172.30.1.84:8081'
     
     
     try:
